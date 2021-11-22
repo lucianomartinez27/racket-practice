@@ -43,7 +43,7 @@
   (place-image (text (number->string (guess w)) SIZE COLOR) 250 350 (overlay (text "End, your number is" SIZE COLOR) MT-SC)))
 
 (define (single? w)
-  (= (interval-small w) (interval-big w)) )
+  (= (interval-small w) (interval-big w)))
 
 (define (render w)
   (place-image (text (number->string (interval-big w)) 30  COLOR) 100 100
