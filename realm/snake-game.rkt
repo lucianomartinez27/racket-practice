@@ -76,7 +76,7 @@
 ;; Constants
 
 ;; Tick Rate 
-(define TICK-RATE 1/10)
+(define TICK-RATE 1/20)
 
 ;; Board Size Constants
 (define SIZE 30)
@@ -130,16 +130,14 @@
 ;; Start the Game
 (define (start-snake)
   (big-bang (pit (snake "right" (list (posn 1 1)))
-                 (list (fresh-goo)
-                       (fresh-goo)
-                       (fresh-goo)
-                       (fresh-goo)
-                       (fresh-goo)
-                       (fresh-goo)))
+                 (list-of-goo (random 10)))
             (on-tick next-pit TICK-RATE)
             (on-key direct-snake)
             (to-draw render-pit)
             (stop-when dead? render-end)))
+
+(define (list-of-goo max)
+   (build-list  MAX-GOO (lambda (x) (fresh-goo))))
 
 ;; Pit -> Pit
 ;; Take one step: eat or slither
@@ -148,8 +146,26 @@
   (define goos  (pit-goos w))
   (define goo-to-eat (can-eat snake goos))
   (if goo-to-eat
-      (pit (grow snake) (age-goo (eat goos goo-to-eat)))
+      (pit (grow snake)  (age-goo (eat goos goo-to-eat)))
       (pit (slither snake) (age-goo goos))))
+
+(define (new-goos goos)
+  (define my-new-goos (append (list-of-goo 10) goos))
+   (take  (filter-duplicated-goos  my-new-goos) (random 1 (min (length my-new-goos) 10))))
+
+
+; (remove-duplicates (list (goo (posn 2 1) 11) (goo (posn 2 1) 13)) (lambda (goo goo2) (posn=? (goo-loc goo) (goo-loc goo2) )))
+(define (filter-duplicated-goos goos)
+  (cond
+    [(empty?  goos) empty]
+    [(is-duplicated? (first goos)  goos) (filter-duplicated-goos (remove (first goos)  goos))]
+    [else (cons (first goos) (filter-duplicated-goos (rest goos)))]))
+
+(define (is-duplicated? goo goos)
+  (cond
+    [(empty?  (rest goos)) #f]
+    [(posn=? (goo-loc goo) (goo-loc (second goos))) #t]
+    [else (is-duplicated? goo (rest goos))]))
 
 ;; Pit KeyEvent -> Pit
 ;; Handle a key event
@@ -173,7 +189,7 @@
 ;; produces a gameover image
 (define (render-end w)
   (place-image/align
-   (text (number->string (length (snake-body (pit-snake w)))) ; it shows the number of goo that the snake has eaten
+   (text (string-append (number->string (length (snake-body (pit-snake w)))) " goos eaten") ; it shows the number of goo that the snake has eaten
          (* 4 ENDGAME-TEXT-SIZE) "red") MID-WIDTH 50 "center" "top"
                                   (overlay (text "Game over" ENDGAME-TEXT-SIZE "black")
                                            (render-pit w))))
@@ -275,18 +291,22 @@
 
 ;; -----------------------------------------------------------------------------
 ;; Rotting Goo
+;; [Listof Goo] -> [Listof Goo]
+;; Add new goos.
+
+
 
 ;; [Listof Goo] -> [Listof Goo]
 ;; Renew and rot goos.
 (define (age-goo goos)
-  (rot (renew goos)))
+  (rot (renew  goos)))
 
 ;; [Listof Goo] -> [Listof Goo]
 ;; Renew any rotten goos.
 (define (renew goos)
   (cond [(empty? goos) empty]
         [(rotten? (first goos))
-         (cons (fresh-goo) (renew (rest goos)))]
+        (new-goos goos)]
         [else
          (cons (first goos) (renew (rest goos)))]))
 
@@ -319,7 +339,7 @@
 (define (fresh-goo)
   (goo (posn (add1 (random (sub1 SIZE)))
              (add1 (random (sub1 SIZE))))
-       (random EXPIRATION-TIME)))
+        (random 50 EXPIRATION-TIME)))
 
 ;                                                                                                      
 ;                                                                                                      
@@ -638,7 +658,9 @@
   (check-equal? (render-end world2)
                 (overlay (text "Game over" 15 "black")
                          (render-pit world2)))
-  
+
+  (check-true (<= (length (list-of-goo 5)) 5))
+  (check-false (> (length (list-of-goo 5)) 5))
   ;; Properties
   ;; -----------------------------------------------------------------------------
   
