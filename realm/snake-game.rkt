@@ -1,4 +1,5 @@
 #lang racket
+(require racket/random)
 
 #|
    The Snake game 
@@ -66,6 +67,10 @@
 ;; The expire field is a Natural Number that represents the number
 ;; of ticks until the goo expires. A goo is expired when this field is 1
 
+;; A SuperGoo is a (s-goo Posn Number)
+(struct s-goo (loc expire) #:transparent)
+;; Is exactly like a goo but if is eaten, the snakes grows two segments
+
 ;; A Direction is one of "up" "down" "left" "right"
 
 ;; A Posn is (posn number number)
@@ -96,6 +101,7 @@
 ;; Visual constants
 (define MT-SCENE (empty-scene WIDTH-PX HEIGHT-PX))
 (define GOO-IMG (bitmap "graphics/goo.gif"))
+(define S-GOO-IMG (bitmap "graphics/s-goo.gif"))
 (define SEG-IMG  (bitmap "graphics/body.gif"))
 (define HEAD-IMG (bitmap "graphics/head.gif"))
 
@@ -130,14 +136,14 @@
 ;; Start the Game
 (define (start-snake)
   (big-bang (pit (snake "right" (list (posn 1 1)))
-                 (list-of-goo (random 10)))
+                 (list-of-goo))
             (on-tick next-pit TICK-RATE)
             (on-key direct-snake)
             (to-draw render-pit)
             (stop-when dead? render-end)))
 
-(define (list-of-goo max)
-   (build-list  MAX-GOO (lambda (x) (fresh-goo))))
+(define (list-of-goo)
+   (build-list MAX-GOO (lambda (x) (fresh-goo))))
 
 ;; Pit -> Pit
 ;; Take one step: eat or slither
@@ -146,15 +152,15 @@
   (define goos  (pit-goos w))
   (define goo-to-eat (can-eat snake goos))
   (if goo-to-eat
-      (pit (grow snake)  (age-goo (eat goos goo-to-eat)))
+      (pit (if (goo? goo-to-eat) (grow snake) (grow2 snake))  (age-goo (eat goos goo-to-eat)))
       (pit (slither snake) (age-goo goos))))
 
-(define (new-goos goos)
-  (define my-new-goos (append (list-of-goo 10) goos))
-   (take  (filter-duplicated-goos  my-new-goos) (random 1 (min (length my-new-goos) 10))))
+(define (random-goos goos)
+  (define my-random-goos (append (list-of-goo) goos))
+   (take  (filter-duplicated-goos  my-random-goos) (random 1 (min (length my-random-goos) 10))))
 
 
-; (remove-duplicates (list (goo (posn 2 1) 11) (goo (posn 2 1) 13)) (lambda (goo goo2) (posn=? (goo-loc goo) (goo-loc goo2) )))
+; (remove-duplicates (list (goo (posn 2 1) 11) (goo (posn 2 1) 13)) (lambda (goo goo2) (posn=? (goo-pos goo) (goo-pos goo2) )))
 (define (filter-duplicated-goos goos)
   (cond
     [(empty?  goos) empty]
@@ -163,8 +169,8 @@
 
 (define (is-duplicated? goo goos)
   (cond
-    [(empty?  (rest goos)) #f]
-    [(posn=? (goo-loc goo) (goo-loc (second goos))) #t]
+    [(is-last? goos) #f]
+    [(posn=? (goo-pos goo) (goo-pos (second goos))) #t]
     [else (is-duplicated? goo (rest goos))]))
 
 ;; Pit KeyEvent -> Pit
@@ -238,7 +244,14 @@
 ;; > (close? (posn 1 2) (goo (posn 1 2) 4))
 ;; #t
 (define (close? s g)
-  (posn=? s (goo-loc g)))
+  (posn=? s (goo-pos g)))
+
+
+(define (goo-pos g)
+  (if (goo? g) (goo-loc g) (s-goo-loc g)))
+
+(define (goo-expiration g)
+  (if (goo? g) (goo-expire g) (s-goo-expire g)))
 
 ;; Grow the snake one segment.
 ;; Snake -> Snake
@@ -246,6 +259,11 @@
 ;; (snake "right" `(,(posn 2 1) ,(posn 1 1)))
 (define (grow sn)
   (snake (snake-dir sn) (cons (next-head sn) (snake-segs sn))))
+
+
+;; Exactly like Grow but the snake adds two segments
+(define (grow2 sn)
+  (grow (grow sn )))
 
 ;; -----------------------------------------------------------------------------
 ;; Movement
@@ -283,11 +301,11 @@
 ;; > (all-but-last '(1 2 3 4))
 ;; '(1 2 3)
 (define (all-but-last segs)
-  (cond [(is-last segs) empty]
+  (cond [(is-last? segs) empty]
         [else (cons (first segs) 
                     (all-but-last (rest segs)))]))
 
-(define (is-last segs) (empty? (rest segs)))
+(define (is-last? segs) (empty? (rest segs)))
 
 ;; -----------------------------------------------------------------------------
 ;; Rotting Goo
@@ -305,8 +323,10 @@
 ;; Renew any rotten goos.
 (define (renew goos)
   (cond [(empty? goos) empty]
+        [(rotten? (last goos)) (random-goos goos)]
         [(rotten? (first goos))
-        (new-goos goos)]
+         (cons (fresh-goo) (renew (rest goos)))]
+        
         [else
          (cons (first goos) (renew (rest goos)))]))
 
@@ -322,14 +342,15 @@
 ;; > (rotten? (goo 1 2) 0)
 ;; #t
 (define (rotten? g)
-  (zero? (goo-expire g)))
+  (zero? (goo-expiration g)))
 
 ;; Goo -> Goo
 ;; decreases the expire field of goo by one
 ;; > (decay (goo (posn 1 2) 2))
 ;; (goo (posn 1 2) 1)
 (define (decay g)
-  (goo (goo-loc g) (sub1 (goo-expire g))))
+  (if (goo? g) (goo (goo-pos g) (sub1 (goo-expiration g)))
+      (s-goo (goo-pos g) (sub1 (goo-expiration g)))))
 
 ;; -> Goo
 ;; Create random goo with fresh expiration.
@@ -337,10 +358,17 @@
 ;;  - x in (0,WIDTH),
 ;;  - y in (0,HEIGHT).
 (define (fresh-goo)
-  (goo (posn (add1 (random (sub1 SIZE)))
-             (add1 (random (sub1 SIZE))))
-        (random 50 EXPIRATION-TIME)))
+  (define position (posn (add1 (random (sub1 SIZE)))
+             (add1 (random (sub1 SIZE)))))
+  (define expiration-time (random 50 EXPIRATION-TIME))
+  
+  (new-goo position expiration-time))
 
+(define (new-goo position expiration-time)
+  (define s-g (s-goo position expiration-time))
+  (define g (goo position expiration-time))
+  (first (random-sample  (list g
+                   s-g) 1)))
 ;                                                                                                      
 ;                                                                                                      
 ;                                                                                                      
@@ -439,16 +467,12 @@
 ;; draws all of the goo to a scene
 ;; > (goo-list+scene (list goo0) MT-SCENE)
 ;; (place-image GOO-IMG 32 32 MT-SCENE)
+
 (define (goo-list+scene goos scene)
-  ;; [Listof Goo] -> [Listof Posn]
-  ;; gets the posns of all the goo 
-  ;; > (get-posns-from-goo (list (goo (posn 2 2) 1) (goo (posn 3 3) 1))
-  ;; (list (posn 2 2) (posn 3 3))
-  (define (get-posns-from-goo goos)
-    (cond [(empty? goos) empty]
-          [else (cons (goo-loc (first goos))
-                      (get-posns-from-goo (rest goos)))]))
-  (img-list+scene (get-posns-from-goo goos) GOO-IMG scene))
+  (cond [(empty? goos) scene]
+        [else (img+scene (goo-pos (first goos))
+                         (if (goo? (first goos)) GOO-IMG S-GOO-IMG) 
+                         (goo-list+scene (rest goos) scene))]))
 
 ;; [Listof Posn] Image Scene -> Scene
 ;; Draws a the image to each posn in the list
@@ -659,8 +683,8 @@
                 (overlay (text "Game over" 15 "black")
                          (render-pit world2)))
 
-  (check-true (<= (length (list-of-goo 5)) 5))
-  (check-false (> (length (list-of-goo 5)) 5))
+  (check-true (<= (length (list-of-goo)) MAX-GOO))
+  (check-false (> (length (list-of-goo)) MAX-GOO))
   ;; Properties
   ;; -----------------------------------------------------------------------------
   
@@ -669,9 +693,9 @@
     (test-begin 
      (for ([i (in-range i)])
        (define goos (list-of-n-goo MAX-GOO))
-       (define goo-initial-expire (map goo-expire goos))
+       (define goo-initial-expire (map goo-expiration goos))
        (check-equal? (map sub1 goo-initial-expire)
-                     (map goo-expire (age-goo goos))))))
+                     (map goo-expiration (age-goo goos))))))
   
   ;; Property: The position of the goo is:
   ;;  - x in (0,WIDTH-SEGS),
@@ -680,8 +704,8 @@
     (test-begin 
      (for ([i (in-range i)])
        (define f (fresh-goo))
-       (check-true (and (< 0 (posn-x (goo-loc f)) SIZE)
-                        (< 0 (posn-y (goo-loc f)) SIZE))))))
+       (check-true (and (< 0 (posn-x (goo-pos f)) SIZE)
+                        (< 0 (posn-y (goo-pos f)) SIZE))))))
   
   ;; Number -> [Listof Goo]
   ;; creates a list of randomly selected goo that is n long.
@@ -896,7 +920,7 @@
   (check-equal? (decay (goo (posn 3 5) 8))
                 (goo (posn 3 5) 7))
   
-  (check-true (is-last '(1)))
-  (check-false (is-last '(1 2)))
+  (check-true (is-last? '(1)))
+  (check-false (is-last? '(1 2)))
   
   "all tests run")
